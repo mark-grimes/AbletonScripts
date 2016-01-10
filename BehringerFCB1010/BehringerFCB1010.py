@@ -37,6 +37,23 @@ class BehringerFCB1010(ControlSurface):
     # The MIDI CC number that each of the two expression pedals transmits
     EXPRESSION_MIDI_CC = [27,28]
     
+    FIRE_SCENE_MIDI_NOTES = [ (MIDI_NOTE_TYPE,MIDI_CHANNEL,6),
+                         (MIDI_NOTE_TYPE,MIDI_CHANNEL,7),
+                         (MIDI_NOTE_TYPE,MIDI_CHANNEL,8),
+                         (MIDI_NOTE_TYPE,MIDI_CHANNEL,9),
+                         (MIDI_NOTE_TYPE,MIDI_CHANNEL,10) ]
+
+    FIRE_CLIP_MIDI_NOTES = [ (MIDI_NOTE_TYPE,MIDI_CHANNEL,16),
+                        (MIDI_NOTE_TYPE,MIDI_CHANNEL,17),
+                        (MIDI_NOTE_TYPE,MIDI_CHANNEL,18),
+                        (MIDI_NOTE_TYPE,MIDI_CHANNEL,19),
+                        (MIDI_NOTE_TYPE,MIDI_CHANNEL,20) ]
+    BEGIN_RECORDING_MIDI_NOTES = [ (MIDI_NOTE_TYPE,MIDI_CHANNEL,1), (MIDI_NOTE_TYPE,MIDI_CHANNEL,11) ]
+    BEGIN_NEW_SCENE_MIDI_NOTES = [ (MIDI_NOTE_TYPE,MIDI_CHANNEL,2), (MIDI_NOTE_TYPE,MIDI_CHANNEL,12) ]
+    BEGIN_NEW_LAYER_MIDI_NOTES = [ (MIDI_NOTE_TYPE,MIDI_CHANNEL,3), (MIDI_NOTE_TYPE,MIDI_CHANNEL,13) ]
+    STOP_SONG_MIDI_NOTES = [ (MIDI_NOTE_TYPE,MIDI_CHANNEL,4), (MIDI_NOTE_TYPE,MIDI_CHANNEL,14) ]
+    TOGGLE_METRONOME_MIDI_NOTES = [ (MIDI_NOTE_TYPE,MIDI_CHANNEL,5), (MIDI_NOTE_TYPE,MIDI_CHANNEL,15) ]
+
     def __init__(self, *a, **k):
         super(BehringerFCB1010, self).__init__(*a, **k)
         self.log_message("Starting Behringer FCB1010 script __init__")
@@ -52,29 +69,51 @@ class BehringerFCB1010(ControlSurface):
         # pedal 1). These are hard coded in the PEDAL_MIDI_NOTES array. Note that this is for bank 00. At the
         # moment I'm ignoring the "Up" and "Down" pedals because they change all the other pedals.
         with self.component_guard():
-            self._selectButtons=[ ButtonElement( True, MIDI_NOTE_TYPE, self.MIDI_CHANNEL, self.PEDAL_MIDI_NOTES[pedal], name='Pedal_%d' % (pedal+1) ) for pedal in xrange(self.NUMBER_OF_CONTROLS) ]
-            self._expressionPedals=[ SliderElement( MIDI_CC_TYPE, self.MIDI_CHANNEL, self.EXPRESSION_MIDI_CC[pedal] ) for pedal in xrange(self.NUMBER_OF_EXPRESSION) ]
-            # Need to add buttons for the "up" and "down" pedals. Haven't figured out how I'm goint to implement
-            # those however since they change the notes of all the other pedals.
+            # Create the various buttons for specific things. Note that for each loop all
+            # of the buttons (if there is more than one note registered) does the same thing.
+            # When the bank changes I might want another button to do a particular function.
+            self._buttons = []
+            for midiNote in self.BEGIN_RECORDING_MIDI_NOTES :
+                button=ButtonElement( True, midiNote[0], midiNote[1], midiNote[2], name='Begin_recording_button%d' % (len(self._buttons)) )
+                button.add_value_listener( self.begin_recording_handler )
+                self._buttons.append( button )
 
-            self._selectButtons[0].add_value_listener( self.begin_recording_handler )
-            self._selectButtons[1].add_value_listener( self.begin_recording_new_scene_handler )
-            self._selectButtons[2].add_value_listener( self.playCurrentRecordingAndArmNext )
-            self._selectButtons[3].add_value_listener( self.stopSong )
-            self._selectButtons[4].add_value_listener( self.toggleMetronome )
-            
+            for midiNote in self.BEGIN_NEW_SCENE_MIDI_NOTES :
+                button=ButtonElement( True, midiNote[0], midiNote[1], midiNote[2], name='Begin_new_scene_button%d' % (len(self._buttons)) )
+                button.add_value_listener( self.begin_recording_new_scene_handler )
+                self._buttons.append( button )
 
-#             self._selectButtons[5].add_value_listener( partial(self.fire_scene,sceneNumber=0) )
-#             self._selectButtons[6].add_value_listener( partial(self.fire_scene,sceneNumber=1) )
-#             self._selectButtons[7].add_value_listener( partial(self.fire_scene,sceneNumber=2) )
-#             self._selectButtons[8].add_value_listener( partial(self.fire_scene,sceneNumber=3) )
-#             self._selectButtons[9].add_value_listener( partial(self.fire_scene,sceneNumber=4) )
-            self._selectButtons[5].add_value_listener( partial(self.fire_clip,clipNumber=0) )
-            self._selectButtons[6].add_value_listener( partial(self.fire_clip,clipNumber=1) )
-            self._selectButtons[7].add_value_listener( partial(self.fire_clip,clipNumber=2) )
-            self._selectButtons[8].add_value_listener( partial(self.fire_clip,clipNumber=3) )
-            self._selectButtons[9].add_value_listener( partial(self.fire_clip,clipNumber=4) )
-            
+            for midiNote in self.BEGIN_NEW_LAYER_MIDI_NOTES :
+                button=ButtonElement( True, midiNote[0], midiNote[1], midiNote[2], name='Begin_new_layer%d' % (len(self._buttons)) )
+                button.add_value_listener( self.playCurrentRecordingAndArmNext )
+                self._buttons.append( button )
+
+            for midiNote in self.STOP_SONG_MIDI_NOTES :
+                button=ButtonElement( True, midiNote[0], midiNote[1], midiNote[2], name='Stop_song_button%d' % (len(self._buttons)) )
+                button.add_value_listener( self.stopSong )
+                self._buttons.append( button )
+
+            for midiNote in self.TOGGLE_METRONOME_MIDI_NOTES :
+                button=ButtonElement( True, midiNote[0], midiNote[1], midiNote[2], name='Toggle_metronome%d' % (len(self._buttons)) )
+                button.add_value_listener( self.toggleMetronome )
+                self._buttons.append( button )
+
+            # Create and add listeners to all the buttons that fire a scene
+            self._fire_scene_buttons=[]
+            for index in xrange( len(self.FIRE_SCENE_MIDI_NOTES) ) :
+                midiNote=self.FIRE_SCENE_MIDI_NOTES[index]
+                button=ButtonElement( True, midiNote[0], midiNote[1], midiNote[2], name='Fire_scene_%d' % (index+1) )
+                button.add_value_listener( partial(self.fire_scene,sceneNumber=index) )
+                self._fire_scene_buttons.append( button )
+
+            # Create and add listeners to all the buttons that fire and delete clips
+            self._fire_clip_buttons=[]
+            for index in xrange( len(self.FIRE_CLIP_MIDI_NOTES) ) :
+                midiNote=self.FIRE_CLIP_MIDI_NOTES[index]
+                button=ButtonElement( True, midiNote[0], midiNote[1], midiNote[2], name='Fire_clip_%d' % (index+1) )
+                button.add_value_listener( partial(self.fire_clip,clipNumber=index) )
+                self._fire_clip_buttons.append( button )
+
             # Define a function to say where the start of the highlighted region is. When all
             # scripts are loaded I'll try and find another control surface and use that highlighted
             # region. If I can't find one just work relative to the first clip.
